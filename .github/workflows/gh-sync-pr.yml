@@ -43,9 +43,9 @@ jobs:
         run: |
           BRANCH="pr-${PR_NUMBER}"
           git remote add gitlab "${GITLAB_REMOTE_URL}" || git remote set-url gitlab "${GITLAB_REMOTE_URL}"
-          # push the branch to GitLab (force-with-lease to update if exists)
           git push --force-with-lease gitlab "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
           echo "Pushed ${BRANCH} to GitLab"
+          echo "PUSHED_BRANCH=${BRANCH}" >> $GITHUB_OUTPUT
 
       - name: Create MR in GitLab
         env:
@@ -53,10 +53,13 @@ jobs:
           PROJECT_ID: 14
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_BRANCH="${{ github.head_ref }}"
           PR_URL="${{ github.event.pull_request.html_url }}"
-
+          # Utiliser la branche que l'on a effectivement poussée
+          PR_BRANCH="${{ steps.push_gitlab.outputs.PUSHED_BRANCH }}" || PR_BRANCH="pr-${{ github.event.number }}"
           curl --request POST \
             --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-            --data "source_branch=$PR_BRANCH&target_branch=main&title=[GitHub PR] $PR_TITLE&description=PR mirror from GitHub: $PR_URL" \
+            --data-urlencode "source_branch=$PR_BRANCH" \
+            --data-urlencode "target_branch=main" \
+            --data-urlencode "title=[GitHub PR] $PR_TITLE" \
+            --data-urlencode "description=PR mirror from GitHub: $PR_URL" \
             "https://gitlab.hoohoo.fr/api/v4/projects/$PROJECT_ID/merge_requests"
