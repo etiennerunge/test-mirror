@@ -91,8 +91,8 @@ jobs:
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
           PR_URL="${{ github.event.pull_request.html_url }}"
-          # Utiliser la branche que l'on a effectivement poussée
-          PR_BRANCH="${{ steps.push_gitlab.outputs.PUSHED_BRANCH }}" || PR_BRANCH="pr-${{ github.event.number }}"
+          PR_BRANCH="pr-${{ github.event.number }}"
+
           curl --request POST \
             --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
             --data-urlencode "source_branch=$PR_BRANCH" \
