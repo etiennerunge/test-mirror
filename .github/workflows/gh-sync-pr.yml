@@ -42,10 +42,24 @@ jobs:
           PR_NUMBER: ${{ github.event.number }}
         run: |
           BRANCH="pr-${PR_NUMBER}"
-          git remote add gitlab "${GITLAB_REMOTE_URL}" || git remote set-url gitlab "${GITLAB_REMOTE_URL}"
-          git push --force-with-lease gitlab "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
-          echo "Pushed ${BRANCH} to GitLab"
-          echo "PUSHED_BRANCH=${BRANCH}" >> $GITHUB_OUTPUT
+          REMOTE_SHA=$(git ls-remote ${REMOTE} "refs/heads/${BRANCH}" | cut -f1)
+
+          if [ -z "$REMOTE_SHA" ]; then
+            echo "Remote branch does not exist yet — pushing normally."
+            git push ${REMOTE} "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
+          else
+            echo "Remote branch exists with SHA $REMOTE_SHA — attempting safe force-with-lease."
+            # Use explicit --force-with-lease=<ref>:<expected-value>
+            git push --force-with-lease=refs/heads/${BRANCH}:${REMOTE_SHA} ${REMOTE} "refs/heads/${BRANCH}:refs/heads/${BRANCH}" \
+              || {
+                echo "Safe push failed (remote changed since fetch). Fetching latest and aborting to avoid overwrite."
+                # Optional: fetch latest remote and show diff for debug
+                git fetch ${REMOTE} "refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}" || true
+                echo "Remote branch now at: $(git rev-parse refs/remotes/${REMOTE}/${BRANCH} 2>/dev/null || echo 'n/a')"
+                git log --oneline --graph --decorate refs/remotes/${REMOTE}/${BRANCH}..HEAD || true
+                exit 1
+              }
+          fi
 
       - name: Create MR in GitLab
         env:
