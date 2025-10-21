@@ -8,15 +8,95 @@ jobs:
   create-mr:
     runs-on: ubuntu-latest
     steps:
+
+      - name: Checkout full repo (fetch PR refs)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare Git and fetch PR head (supports forks)
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          # Try to fetch the PR ref (works for PRs in same repo)
+          if git fetch origin "refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr/${PR_NUMBER}"; then
+            echo "Fetched refs/pull/${PR_NUMBER}/head"
+            git checkout -b "pr-${PR_NUMBER}" "refs/remotes/origin/pr/${PR_NUMBER}"
+          else
+            # Fallback: try to fetch head branch from the head repo (works for forks if accessible)
+            echo "Fallback: fetching from head repo ${PR_HEAD_REPO}"
+            git remote add headrepo "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${PR_HEAD_REPO}.git" || true
+            git fetch headrepo "${PR_HEAD_REF}:${PR_HEAD_REF}" || git fetch headrepo "${PR_HEAD_SHA}:${PR_HEAD_REF}"
+            git checkout -b "pr-${PR_NUMBER}" "${PR_HEAD_REF}"
+          fi
+
+      - name: Add GitLab remote and push PR branch (robust)
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+          GITLAB_REMOTE_URL: ${{ secrets.GITLAB_REMOTE_URL }}
+        run: |
+          set -euo pipefail
+
+          BRANCH="pr-${PR_NUMBER}"
+          REMOTE_NAME="gitlab"
+          REMOTE_URL="${GITLAB_REMOTE_URL:-}"
+
+          # Ensure remote is added
+          git remote remove "${REMOTE_NAME}" 2>/dev/null || true
+          git remote add "${REMOTE_NAME}" "${REMOTE_URL}"
+
+          echo "--- git remote -v ---"
+          git remote -v
+
+          # Test connectivity
+          echo "Testing connectivity..."
+          if ! git ls-remote --exit-code "${REMOTE_NAME}" &>/dev/null; then
+            echo "ERROR: cannot contact remote '${REMOTE_NAME}'."
+            git ls-remote "${REMOTE_NAME}" || true
+            echo "Vérifie GITLAB_REMOTE_URL, token et droits du token."
+            exit 1
+          fi
+          echo "Connectivity OK."
+
+          # Check remote branch and push safely
+          REMOTE_SHA=$(git ls-remote "${REMOTE_NAME}" "refs/heads/${BRANCH}" | cut -f1 || true)
+
+          if [ -z "$REMOTE_SHA" ]; then
+            echo "Remote branch does not exist — pushing normally."
+            git push "${REMOTE_NAME}" "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
+          else
+            echo "Remote branch exists (SHA: $REMOTE_SHA) — attempting safe force-with-lease."
+            if ! git push --force-with-lease=refs/heads/${BRANCH}:${REMOTE_SHA} "${REMOTE_NAME}" "refs/heads/${BRANCH}:refs/heads/${BRANCH}"; then
+              echo "Safe push failed — remote changed since check. Fetching remote for debug and aborting."
+              git fetch "${REMOTE_NAME}" "refs/heads/${BRANCH}:refs/remotes/${REMOTE_NAME}/${BRANCH}" || true
+              echo "Remote now at: $(git rev-parse refs/remotes/${REMOTE_NAME}/${BRANCH} 2>/dev/null || echo 'n/a')"
+              git --no-pager log --oneline refs/remotes/${REMOTE_NAME}/${BRANCH}..HEAD || true
+              exit 1
+            fi
+          fi
+
+          echo "Push succeeded."
+          echo "PUSHED_BRANCH=${BRANCH}" >> $GITHUB_OUTPUT
+
       - name: Create MR in GitLab
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          PROJECT_ID: 14
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_BRANCH="${{ github.head_ref }}"
           PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_BRANCH="pr-${{ github.event.number }}"
 
           curl --request POST \
             --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-            --data "source_branch=$PR_BRANCH&target_branch=main&title=[GitHub PR] $PR_TITLE&description=PR mirror from GitHub: $PR_URL" \
-            "https://gitlab.hoohoo.fr/api/v4/projects/<PROJECT_ID>/merge_requests"
+            --data-urlencode "source_branch=$PR_BRANCH" \
+            --data-urlencode "target_branch=main" \
+            --data-urlencode "title=[GitHub PR] $PR_TITLE" \
+            --data-urlencode "description=PR mirror from GitHub: $PR_URL" \
+            "https://gitlab.hoohoo.fr/api/v4/projects/$PROJECT_ID/merge_requests"
