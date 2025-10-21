@@ -11,6 +11,7 @@ jobs:
       - name: Create MR in GitLab
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          PROJECT_ID: 14
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
           PR_BRANCH="${{ github.head_ref }}"
@@ -19,4 +20,4 @@ jobs:
           curl --request POST \
             --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
             --data "source_branch=$PR_BRANCH&target_branch=main&title=[GitHub PR] $PR_TITLE&description=PR mirror from GitHub: $PR_URL" \
-            "https://gitlab.hoohoo.fr/api/v4/projects/<PROJECT_ID>/merge_requests"
+            "https://gitlab.hoohoo.fr/api/v4/projects/$PROJECT_ID/merge_requests"
