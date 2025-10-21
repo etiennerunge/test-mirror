@@ -23,6 +23,7 @@ jobs:
       - name: Find and close PRs whose head branch is now in master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LABEL_NAME: "merged in gitlab"
         run: |
           # This script finds open PRs in the repo where the PR head branch is now contained in master.
           REPO="${{ github.repository }}"
@@ -54,5 +55,12 @@ jobs:
                 -H "Content-Type: application/json" \
                 -d '{"state":"closed"}' \
                 "https://api.github.com/repos/$REPO/pulls/$number" >/dev/null
+
+              # Add label
+              curl -s -X POST \ 
+                -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                https://api.github.com/repos/${{ github.repository }}/issues/${number}/labels \
+                -d "{\"labels\":[\"$LABEL_NAME\"]}"
             fi
           done
