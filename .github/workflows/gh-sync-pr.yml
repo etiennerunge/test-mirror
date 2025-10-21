@@ -40,23 +40,25 @@ jobs:
         env:
           GITLAB_REMOTE_URL: ${{ secrets.GITLAB_REMOTE_URL }}
           PR_NUMBER: ${{ github.event.number }}
+          REMOTE_NAME="gitlab"
+
         run: |
           BRANCH="pr-${PR_NUMBER}"
-          REMOTE_SHA=$(git ls-remote ${REMOTE} "refs/heads/${BRANCH}" | cut -f1)
+          REMOTE_SHA=$(git ls-remote ${REMOTE_NAME} "refs/heads/${BRANCH}" | cut -f1)
 
           if [ -z "$REMOTE_SHA" ]; then
             echo "Remote branch does not exist yet — pushing normally."
-            git push ${REMOTE} "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
+            git push ${REMOTE_NAME} "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
           else
             echo "Remote branch exists with SHA $REMOTE_SHA — attempting safe force-with-lease."
             # Use explicit --force-with-lease=<ref>:<expected-value>
-            git push --force-with-lease=refs/heads/${BRANCH}:${REMOTE_SHA} ${REMOTE} "refs/heads/${BRANCH}:refs/heads/${BRANCH}" \
+            git push --force-with-lease=refs/heads/${BRANCH}:${REMOTE_SHA} ${REMOTE_NAME} "refs/heads/${BRANCH}:refs/heads/${BRANCH}" \
               || {
                 echo "Safe push failed (remote changed since fetch). Fetching latest and aborting to avoid overwrite."
                 # Optional: fetch latest remote and show diff for debug
-                git fetch ${REMOTE} "refs/heads/${BRANCH}:refs/remotes/${REMOTE}/${BRANCH}" || true
-                echo "Remote branch now at: $(git rev-parse refs/remotes/${REMOTE}/${BRANCH} 2>/dev/null || echo 'n/a')"
-                git log --oneline --graph --decorate refs/remotes/${REMOTE}/${BRANCH}..HEAD || true
+                git fetch ${REMOTE_NAME} "refs/heads/${BRANCH}:refs/remotes/${REMOTE_NAME}/${BRANCH}" || true
+                echo "Remote branch now at: $(git rev-parse refs/remotes/${REMOTE_NAME}/${BRANCH} 2>/dev/null || echo 'n/a')"
+                git log --oneline --graph --decorate refs/remotes/${REMOTE_NAME}/${BRANCH}..HEAD || true
                 exit 1
               }
           fi
