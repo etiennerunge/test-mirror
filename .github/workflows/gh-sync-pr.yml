@@ -1,0 +1,22 @@
+name: Sync PR to GitLab
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  create-mr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create MR in GitLab
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BRANCH="${{ github.head_ref }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+
+          curl --request POST \
+            --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+            --data "source_branch=$PR_BRANCH&target_branch=main&title=[GitHub PR] $PR_TITLE&description=PR mirror from GitHub: $PR_URL" \
+            "https://gitlab.hoohoo.fr/api/v4/projects/<PROJECT_ID>/merge_requests"

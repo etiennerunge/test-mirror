@@ -1,0 +1,58 @@
+name: Close PRs merged on GitLab (via mirror)
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  close-prs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Find and close PRs whose head branch is now in master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # This script finds open PRs in the repo where the PR head branch is now contained in master.
+          REPO="${{ github.repository }}"
+          OWNER="${{ github.repository_owner }}"
+          # Get list of open PRs (number, head.ref)
+          prs=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$REPO/pulls?state=open&per_page=100")
+
+          echo "$prs" | jq -c '.[] | {number:.number, head:.head.ref, head_sha:.head.sha, html_url:.html_url}' | while read -r pr; do
+            number=$(echo "$pr" | jq -r '.number')
+            head_ref=$(echo "$pr" | jq -r '.head')
+            head_sha=$(echo "$pr" | jq -r '.head_sha')
+            pr_url=$(echo "$pr" | jq -r '.html_url')
+
+            # Check if the head_sha is contained in master (git merge-base --is-ancestor)
+            if git merge-base --is-ancestor "$head_sha" origin/master 2>/dev/null; then
+              echo "PR #$number (branch: $head_ref) is now in master -> closing with comment."
+
+              BODY="Cette Pull Request a été *mergée* via GitLab (source de vérité). Le commit est présent dans la branche **master** du miroir GitHub.\n\nSi besoin, voir la MR GitLab correspondante ou l'historique des commits."
+
+              # Post a comment
+              curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$(jq -nc --arg b "$BODY" '{body:$b}')" \
+                "https://api.github.com/repos/$REPO/issues/$number/comments" >/dev/null
+
+              # Close the PR
+              curl -s -X PATCH -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d '{"state":"closed"}' \
+                "https://api.github.com/repos/$REPO/pulls/$number" >/dev/null
+            fi
+          done
