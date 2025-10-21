@@ -40,10 +40,10 @@ jobs:
         env:
           GITLAB_REMOTE_URL: ${{ secrets.GITLAB_REMOTE_URL }}
           PR_NUMBER: ${{ github.event.number }}
-          REMOTE_NAME="gitlab"
 
         run: |
           BRANCH="pr-${PR_NUMBER}"
+          REMOTE_NAME="gitlab"
           REMOTE_SHA=$(git ls-remote ${REMOTE_NAME} "refs/heads/${BRANCH}" | cut -f1)
 
           if [ -z "$REMOTE_SHA" ]; then
